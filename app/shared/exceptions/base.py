@@ -32,3 +32,13 @@ class UnauthorizedError(AppException):
 class ForbiddenError(AppException):
     status_code = 403
     error_code = "forbidden"
+
+
+class RateLimitError(AppException):
+    status_code = 429
+    error_code = "rate_limited"
+
+
+class ServiceUnavailableError(AppException):
+    status_code = 503
+    error_code = "service_unavailable"

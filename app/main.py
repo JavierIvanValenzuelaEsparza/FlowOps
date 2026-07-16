@@ -9,6 +9,10 @@ from fastapi.responses import JSONResponse
 from app.core.config.database.mongo import mongodb
 from app.core.config.settings import settings
 from app.core.lifespan import lifespan
+from app.features.auth.presentation.routes.auth_routes import router as auth_router
+from app.features.documents.presentation.routes.document_routes import (
+    router as documents_router,
+)
 from app.features.organizations.presentation.routes.organization_routes import (
     router as organizations_router,
 )
@@ -50,7 +54,9 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
     )
 
 
+app.include_router(auth_router)
 app.include_router(organizations_router)
+app.include_router(documents_router)
 
 
 @app.get("/")

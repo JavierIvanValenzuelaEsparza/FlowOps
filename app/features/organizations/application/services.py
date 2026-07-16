@@ -67,6 +67,7 @@ class OrganizationService:
 
     async def delete_organization(self, organization_id: str) -> None:
         await self.get_organization(organization_id)
+        await self._repository.delete_users_by_organization(organization_id)
         await self._repository.delete_one(organization_id)
 
     async def set_status(self, organization_id: str, status: OrganizationStatus) -> Organization:

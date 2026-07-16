@@ -63,6 +63,8 @@ class RabbitMQSettings(EnvBaseSettings):
     user: str = Field(default="guest", description="RabbitMQ username")
     password: str = Field(default="guest", description="RabbitMQ password")
     vhost: str = Field(default="/", description="RabbitMQ virtual host")
+    queue: str = Field(default="ocr_jobs", description="Cola de trabajos de OCR")
+    result_queue: str = Field(default="ocr_results", description="Cola de resultados de OCR")
 
     @property
     def connection_string(self) -> str:
@@ -91,6 +93,7 @@ class SecuritySettings(EnvBaseSettings):
     jwt_secret: SecretStr = Field(default=SecretStr("your-secret-key-change-in-production"), description="JWT secret key")
     jwt_algorithm: str = Field(default="HS256", description="JWT signing algorithm")
     jwt_expire_minutes: int = Field(default=1440, description="JWT expiration in minutes")
+    jwt_refresh_expire_minutes: int = Field(default=10_080, description="Refresh token expiration in minutes")
 
     @field_validator("jwt_secret")
     @classmethod
@@ -123,6 +126,7 @@ class Settings(EnvBaseSettings):
 
     server_host: str = Field(default="0.0.0.0", description="Server host")
     server_port: int = Field(default=8000, description="Server port")
+    max_upload_mb: int = Field(default=50, description="Tamaño máximo de archivo subido en MB")
 
     mongo: MongoSettings = Field(default_factory=MongoSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)

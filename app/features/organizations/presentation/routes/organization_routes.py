@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.core.config.database.mongo import mongodb
+from app.core.config.database.deps import get_db
 from app.features.organizations.application.dto import (
     CreateOrganizationDTO,
     CreateUserDTO,
@@ -19,10 +19,6 @@ from app.features.organizations.infrastructure.repositories.organization_reposit
 from app.shared.dto.response import APIResponse, PaginatedResponse
 
 router = APIRouter(prefix="/api/v1/organizations", tags=["organizations"])
-
-
-def get_db() -> AsyncIOMotorDatabase:
-    return mongodb.db
 
 
 def get_organization_service(db: AsyncIOMotorDatabase = Depends(get_db)) -> OrganizationService:

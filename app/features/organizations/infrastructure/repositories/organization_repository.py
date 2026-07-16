@@ -4,7 +4,7 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, IndexModel
 
-from app.features.organizations.domain.models import Organization, User
+from app.features.organizations.domain.models import Organization, User, utcnow
 from app.features.organizations.infrastructure.repositories.base_repository import BaseRepository
 
 USER_LIST_PROJECTION = {"password_hash": 0}
@@ -45,6 +45,7 @@ class OrganizationRepository(BaseRepository[Organization]):
 
     async def add_user(self, organization_id: str, user: User) -> User:
         document = user.model_dump(exclude={"id"})
+        document["password_hash"] = user.password_hash
         result = await self.users.insert_one(document)
         return user.model_copy(update={"id": str(result.inserted_id)})
 
@@ -55,6 +56,27 @@ class OrganizationRepository(BaseRepository[Organization]):
         document = dict(document)
         document["id"] = str(document.pop("_id"))
         return User.model_validate(document)
+
+    async def get_user_by_id(self, user_id: str) -> Optional[User]:
+        if not ObjectId.is_valid(user_id):
+            return None
+        document = await self.users.find_one({"_id": ObjectId(user_id)})
+        if document is None:
+            return None
+        document = dict(document)
+        document["id"] = str(document.pop("_id"))
+        return User.model_validate(document)
+
+    async def touch_user_login(self, user_id: str) -> None:
+        if not ObjectId.is_valid(user_id):
+            return
+        await self.users.update_one(
+            {"_id": ObjectId(user_id)}, {"$set": {"last_login_at": utcnow()}}
+        )
+
+    async def delete_users_by_organization(self, organization_id: str) -> int:
+        result = await self.users.delete_many({"organization_id": organization_id})
+        return result.deleted_count
 
     async def list_users(
         self, organization_id: str, *, skip: int = 0, limit: int = 20
