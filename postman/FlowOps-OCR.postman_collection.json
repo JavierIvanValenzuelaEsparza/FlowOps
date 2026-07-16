@@ -1,0 +1,196 @@
+{
+  "info": {
+    "_postman_id": "f1owops-ocr-collection-0001",
+    "name": "FlowOps OCR Service",
+    "description": "Pruebas del servicio OCR. El servicio consume trabajos desde RabbitMQ, así que el flujo se prueba en 3 pasos: (1) verificar health, (2) publicar un trabajo en la cola 'ocr_jobs' vía la API de management de RabbitMQ, (3) leer el resultado desde 'ocr_results'.\n\nRequisitos: docker compose up (RabbitMQ, MinIO, Redis y el servicio ocr levantados) y un archivo de prueba subido al bucket 'flowops-documents' de MinIO (consola en http://localhost:9001, minioadmin/minioadmin). Ajustar la variable 'ocr_file_path' con la ruta del archivo dentro del bucket.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "basic",
+    "basic": [
+      { "key": "username", "value": "{{rabbitmq_user}}", "type": "string" },
+      { "key": "password", "value": "{{rabbitmq_password}}", "type": "string" }
+    ]
+  },
+  "item": [
+    {
+      "name": "1. OCR Service Health",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{ocr_base_url}}/health",
+          "host": ["{{ocr_base_url}}"],
+          "path": ["health"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test('service is healthy', () => pm.expect(body.status).to.eql('healthy'));",
+              "pm.test('consumer is running (RabbitMQ conectado)', () => {",
+              "    pm.expect(body.consumer_running).to.be.true;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "2. RabbitMQ - Queues Overview",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{rabbitmq_mgmt_url}}/api/queues/%2F",
+          "host": ["{{rabbitmq_mgmt_url}}"],
+          "path": ["api", "queues", "%2F"]
+        },
+        "description": "Lista las colas del vhost '/'. Sirve para confirmar que 'ocr_jobs' y 'ocr_results' existen (las declara el consumer al conectarse)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "const names = pm.response.json().map(q => q.name);",
+              "pm.test('ocr_jobs queue exists', () => pm.expect(names).to.include('ocr_jobs'));",
+              "pm.test('ocr_results queue exists', () => pm.expect(names).to.include('ocr_results'));"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "3. Publish OCR Job",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"properties\": {\n    \"delivery_mode\": 2,\n    \"content_type\": \"application/json\"\n  },\n  \"routing_key\": \"ocr_jobs\",\n  \"payload\": \"{\\\"job_id\\\": \\\"{{ocr_job_id}}\\\", \\\"file_path\\\": \\\"{{ocr_file_path}}\\\"}\",\n  \"payload_encoding\": \"string\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{rabbitmq_mgmt_url}}/api/exchanges/%2F/amq.default/publish",
+          "host": ["{{rabbitmq_mgmt_url}}"],
+          "path": ["api", "exchanges", "%2F", "amq.default", "publish"]
+        },
+        "description": "Publica un trabajo en la cola 'ocr_jobs' a través del exchange default. El archivo referenciado en 'ocr_file_path' debe existir en el bucket de MinIO. El job_id se genera automáticamente en el pre-request script."
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.environment.set('ocr_job_id', 'postman-' + Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "pm.test('message was routed to the queue', () => {",
+              "    pm.expect(pm.response.json().routed).to.be.true;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "4. Get OCR Result",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"count\": 5,\n  \"ackmode\": \"ack_requeue_false\",\n  \"encoding\": \"auto\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{rabbitmq_mgmt_url}}/api/queues/%2F/ocr_results/get",
+          "host": ["{{rabbitmq_mgmt_url}}"],
+          "path": ["api", "queues", "%2F", "ocr_results", "get"]
+        },
+        "description": "Lee (y consume) hasta 5 mensajes de la cola 'ocr_results'. Ejecutar unos segundos después de publicar el trabajo — el OCR de un PDF grande puede tardar. Si devuelve [], el trabajo sigue procesándose: reintentar."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "const messages = pm.response.json();",
+              "pm.test('at least one result available (si falla, el job sigue procesandose: reintentar)', () => {",
+              "    pm.expect(messages.length).to.be.above(0);",
+              "});",
+              "if (messages.length > 0) {",
+              "    const result = JSON.parse(messages[0].payload);",
+              "    console.log('OCR result:', JSON.stringify(result, null, 2));",
+              "    pm.test('result has job_id and status', () => {",
+              "        pm.expect(result).to.have.property('job_id');",
+              "        pm.expect(result).to.have.property('status');",
+              "    });",
+              "    pm.test('job completed successfully', () => {",
+              "        pm.expect(result.status).to.eql('completed');",
+              "    });",
+              "}"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "5. Inspect ocr_jobs Queue Depth",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{rabbitmq_mgmt_url}}/api/queues/%2F/ocr_jobs",
+          "host": ["{{rabbitmq_mgmt_url}}"],
+          "path": ["api", "queues", "%2F", "ocr_jobs"]
+        },
+        "description": "Estado de la cola de trabajos: mensajes pendientes (ready), en proceso (unacknowledged) y consumidores conectados."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "const q = pm.response.json();",
+              "console.log('ready:', q.messages_ready, '| unacked:', q.messages_unacknowledged, '| consumers:', q.consumers);",
+              "pm.test('ocr service is consuming the queue', () => {",
+              "    pm.expect(q.consumers).to.be.above(0);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    }
+  ]
+}
